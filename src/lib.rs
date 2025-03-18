@@ -92,9 +92,7 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
 
         respond(stream, response.to_string());
     } else if &buffer[..13] == b"GET /messages" {
-        
-        println!("\n\nHere i should fetch messages\n\n");
-
+        println!("Here i should fetch messages");
     }else {
         println!("\n\n\n\nchat whatever \n\n\n");
         let c = memmem::find(&buffer[..], b"GET /").map(|p| p as usize).unwrap();
