@@ -1,0 +1,19 @@
+[package]
+name = "chat"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+memchr= "2.7.4"
+percent-encoding = "2.3.1"
+htmlescape = "0.3.1"
+delete = "1.0.1"
+lazy_static = "1.4.0" # for the mutable global show_folder
+
+zip = "2.2.3"  # For ZIP compression
+walkdir = "2.5"  # For recursive directory traversal
+
+encoding = "0.2"
+
+tokio = { version = "1", features = ["full"] }
+rusqlite = { version = "0.34", features = ["bundled"] }
