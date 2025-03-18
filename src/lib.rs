@@ -212,7 +212,7 @@ fn chat(chat: String) -> String {
     <head>
     <body>
         <h2>Welcome to the chat fam, enjoy :)</h2>
-        <ul>
+        <ul> 
     ");
     println!("chat = chats/{}.db", chat);
     let conn = Connection::open(format!("chats/{}.db", chat)).unwrap();
