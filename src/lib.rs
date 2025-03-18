@@ -29,6 +29,8 @@ use std::thread;
     every successfull response will go to response()
     every time smth fails will go to error()
 
+    >>>>>>>>implement auth checking like ASAP
+
 --------------------------------------------------------------------------------
 */
 
@@ -82,18 +84,21 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
 
     if connected == false {
         let response = format!("{}\r\n{}", status_code, login());
-        println!("response = \n{}", response);
+        // println!("response = \n{}", response);
 
         respond(stream, response.to_string());
     } else if &buffer[..6] == b"GET / "{
         let response = format!("{}\r\n{}", status_code, list());
 
         respond(stream, response.to_string());
-    } else {
+    } else if &buffer[..13] == b"GET /messages" {
+        
+        println!("\n\nHere i should fetch messages\n\n");
 
+    }else {
+        println!("\n\n\n\nchat whatever \n\n\n");
         let c = memmem::find(&buffer[..], b"GET /").map(|p| p as usize).unwrap();
-        let c = &buffer[c + "GET /".len()..];
-        println!("\n\n\nchat before idk= \n{}", String::from_utf8_lossy(&c[..]));
+        let c = &buffer[c + "GET /".len()..]; 
         let end = memmem::find(&c[..], b" ").map(|p| p as usize).unwrap();
         println!("end = {}", end);
         let c = &c[..end];
@@ -165,7 +170,6 @@ fn connect(buffer: Vec<u8>) -> String {
 }
 
 fn respond(mut stream: TcpStream, response: String) {
-
     println!("response =\n{}", response);
 
     stream.write(response.as_bytes()).unwrap();
@@ -218,8 +222,8 @@ fn chat(chat: String) -> String {
     let conn = Connection::open(format!("chats/{}.db", chat)).unwrap();
 
     // Insert a new message
-    insert_message(&conn, "adam", "#fe02aa", "HOW YOU DOINGGG").unwrap();
-    insert_message(&conn, "NIGA", "#00ff00", "Sup NIGGASSS!").unwrap();
+    // insert_message(&conn, "adam", "#fe02aa", "HOW YOU DOINGGG").unwrap();
+    // insert_message(&conn, "NIGA", "#00ff00", "Sup NIGGASSS!").unwrap();
 
 
     // Retrieve and print all messages
@@ -240,6 +244,13 @@ fn chat(chat: String) -> String {
     }
 
     html.push_str("
+        <script>
+        async function fetchMessage(){
+            await fetch('/messages') ;
+        }
+            setInterval( fetchMessage , 1000);
+        </script>
+
         </body>
         </html>
     ");
