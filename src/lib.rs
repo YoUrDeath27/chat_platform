@@ -18,6 +18,9 @@ use encoding::{DecoderTrap, Encoding};
 
 use rusqlite::{params, Result, Connection};
 
+use serde::{Serialize, Deserialize};
+use serde_json;
+
 use std::thread;
 // use std::time::Duration;
 // use std::path::Path;
@@ -92,7 +95,22 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
 
         respond(stream, response.to_string());
     } else if &buffer[..13] == b"GET /messages" {
+
+        let c = memmem::find(&buffer[..], b"Chat_room=\"").map(|p| p as usize).unwrap();
+        let c = &buffer[c + "Chat_room=\"".len()..]; 
+        let end = memmem::find(&c[..], b"\"").map(|p| p as usize).unwrap();
+        println!("end = {}", end);
+        let c = &c[..end];
+
+        let conn = Connection::open(format!("{}", String::from_utf8_lossy(&c[..]))).unwrap();
+        let messages = json_messages(&conn);
+        println!("MESSAGES ARE= \n\n{:#?}\n\n\n\n", messages);
+
         println!("Here i should fetch messages");
+
+        let status = "HTTP/1.1 200 OK\r\n\r\n";
+        let response = format!("{}{}", status, messages.unwrap());
+        respond(stream, response);
     }else {
         println!("\n\n\n\nchat whatever \n\n\n");
         let c = memmem::find(&buffer[..], b"GET /").map(|p| p as usize).unwrap();
@@ -211,10 +229,31 @@ fn chat(chat: String) -> String {
     <html>
     <head>
         <title> Chat </title>
-    <head>
+        <meta encoding=\"UTF-8\">
+        <head>
+    <style>
+        form{
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            width: 99vw;
+            height: 10vh;
+            border: 2px dashed #76df87;
+            background: linear-gradient(175deg, #02d02a,rgb(247, 204, 65))
+        }
+        form > input {
+            width: 300px;
+            height: 50px;
+        }
+    </style>
     <body>
         <h2>Welcome to the chat fam, enjoy :)</h2>
-        <ul> 
+        <ul id=\"chat-window\"> </ul>
+
+        <form id=\"chatForm\" method=\"POST\">
+            <input type=\"text\" placeholder=\"Enter a message to send in chat\" name=\"input_message\" id=\"inputMessage\">
+            <button type=\"submit\"> Send message </button> 
+        </form>
     ");
     println!("chat = chats/{}.db", chat);
     let conn = Connection::open(format!("chats/{}.db", chat)).unwrap();
@@ -226,27 +265,41 @@ fn chat(chat: String) -> String {
 
     // Retrieve and print all messages
     let messages = get_messages(&conn).unwrap();
-    for message in messages {
-        println!("{:?}", message);
-        let name = message.name;
-        let color = message.color;
-        let message = message.message;
-        html.push_str(&*format!("
-            <li>
-                <p style=\"color:{};\"> {} </p>
-
-                <h4> {} </h4>
-            </li>
-        ",color,name, message))
-
-    }
 
     html.push_str("
         <script>
-        async function fetchMessage(){
-            await fetch('/messages') ;
+        const chatWindow = document.getElementById('chat-window');
+        
+        document.getElementById(\"chatForm\").addEventListener(\"submit\", function(event) {
+            event.preventDefault();
+
+            const input = document.getElementById(\"inputMessage\");
+            const inputMessage = input.value;
+            
+            input.value = \"\";
+            
+
+            add_message(inputMessage);
+        });
+
+        async function add_message(message) {
+            console.log(message);
         }
-            setInterval( fetchMessage , 1000);
+
+        async function fetchMessage(){
+            const response = await fetch('/messages');
+            const messages = await response.json();
+            chatWindow.innerHTML = messages.map(msg => `
+            <li>
+                <p  style=\"color: ${msg.color};\"> 
+                    ${msg.name}
+                </p>
+
+                <h4> ${msg.message} </h4>
+            </li>
+            `).join('');
+        }
+            setTimeout( fetchMessage , 1000);
         </script>
 
         </body>
@@ -323,7 +376,7 @@ fn list() -> String {
     
 */
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 struct ChatMessage {
     id: usize,
     name: String,
@@ -353,6 +406,12 @@ fn get_messages(conn: &Connection) -> Result<Vec<ChatMessage>> {
     .collect::<Result<Vec<_>>>()?;
 
     Ok(messages)
+}
+
+fn json_messages(conn: &Connection) -> Result<String, rusqlite::Error>  {
+    let messages = get_messages(conn)?;
+    let json = serde_json::to_string(&messages).map_err(|e| rusqlite::Error::InvalidQuery)?;
+    Ok(json)
 }
 
 //make a new chat room
