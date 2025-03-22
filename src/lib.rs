@@ -111,8 +111,13 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
         let status = "HTTP/1.1 200 OK\r\n\r\n";
         let response = format!("{}{}", status, messages.unwrap());
         respond(stream, response);
+    } else if &buffer[..16] == *b"GET /favicon.ico"{
+        let response = format!("{}\r\n", status_code);
+
+        respond(stream, response.to_string());
     }else {
         println!("\n\n\n\nchat whatever \n\n\n");
+
         let c = memmem::find(&buffer[..], b"GET /").map(|p| p as usize).unwrap();
         let c = &buffer[c + "GET /".len()..]; 
         let end = memmem::find(&c[..], b" ").map(|p| p as usize).unwrap();
@@ -143,6 +148,44 @@ fn post(mut stream: TcpStream, buffer: Vec<u8>){
 
     } else if let Some(_) = memmem::find(&buffer[..], b"username="){
         let response = connect(buffer);
+        respond(stream, response.to_string());
+    } else if &buffer[..19] == *b"POST /enter_message"{
+        //add message to chat
+        let input = memmem::find(&buffer[..], b"input_message").map(|p| p as usize).unwrap();
+        let input = &buffer[input + "input_message\":\"".len() ..];
+        let end = memmem::find(input, b"\"").map(|p| p as usize).unwrap();
+        let input = &input[..end];
+        
+        let user = memmem::find(&buffer[..], b"Auth=\"user-").map(|p| p as usize).unwrap();
+        let user = &buffer[user + "Auth=\"user-".len() ..];
+
+        let end = memmem::find(user, b"-token").map(|p| p as usize).unwrap();
+        let user = &user[..end];
+
+        let color = memmem::find(&buffer[..], b"Color=\"color-").map(|p| p as usize).unwrap();
+        let color = &buffer[color + "Color=\"color-".len() ..];
+
+        let end = memmem::find(color, b"-token").map(|p| p as usize).unwrap();
+        let color = &color[..end];
+
+        //insert_message(conn: &Connection, name: &str, color: &str, message: &str)
+
+        let connection = memmem::find(&buffer[..], b"Chat_room=\"").map(|p| p as usize).unwrap();
+        let connection = &buffer[connection + "Chat_room=\"".len() ..];
+        let end = memmem::find(&connection[..], b"\"").map(|p| p as usize).unwrap();
+        let connection = &connection[..end];
+
+        let conn = Connection::open(&*String::from_utf8_lossy(&connection[..])).unwrap();
+
+        insert_message(&conn, 
+                    &String::from_utf8_lossy(&user[..]),
+                    &String::from_utf8_lossy(&color[..]),
+                    &String::from_utf8_lossy(&input[..])).unwrap();
+
+        println!("\n\n\n\n\nHere i should add the new message");
+        
+        let response = "HTTP/1.1 200 OK\r\n\r\n";
+
         respond(stream, response.to_string());
     }
     
@@ -229,7 +272,7 @@ fn chat(chat: String) -> String {
     <html>
     <head>
         <title> Chat </title>
-        <meta encoding=\"UTF-8\">
+        <meta charset=\"utf-8\" />
         <head>
     <style>
         form{
@@ -244,6 +287,13 @@ fn chat(chat: String) -> String {
         form > input {
             width: 300px;
             height: 50px;
+        }
+        #chat-window {
+            height: 80vh;
+            width: 97vw;
+            overflow-y: scroll; /* or use 'scroll' if you always want the scrollbar to be visible */
+            border: 1px solid #ccc; /* Optional: Add a border for better visibility */
+            padding: 10px; /* Optional: Add some padding for better spacing */
         }
     </style>
     <body>
@@ -279,11 +329,41 @@ fn chat(chat: String) -> String {
             input.value = \"\";
             
 
-            add_message(inputMessage);
+            send_message(inputMessage);
         });
 
-        async function add_message(message) {
+        async function send_message(message) {
             console.log(message);
+
+            const data = {
+                input_message: message
+            };
+
+            fetch('/enter_message', {
+                        method:'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+            }).then(response => {
+                console.log('response= ', response);
+                if(!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                console.log('Server response: ', data);
+            })
+            .catch(error => {
+                console.error('Error:' , error);
+            })
+
+            setTimeout(fetchMessage, 10);
+        }
+
+        function scrollToBottom() {
+            chatWindow.scrollTop = chatWindow.scrollHeight;
         }
 
         async function fetchMessage(){
@@ -298,8 +378,11 @@ fn chat(chat: String) -> String {
                 <h4> ${msg.message} </h4>
             </li>
             `).join('');
+            scrollToBottom();
         }
-            setTimeout( fetchMessage , 1000);
+            setInterval( fetchMessage , 1000);
+
+            fetchMessage();
         </script>
 
         </body>
