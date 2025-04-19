@@ -1,0 +1,205 @@
+Here's a rough ordering of the features based on implementation difficulty (easiest to hardest), considering your current codebase:
+Tier 1: Easy (1-2 hours)
+
+    Logout functionality - Clear auth cookies
+
+    Message deletion - Add DELETE endpoint + DB query
+
+    Basic rate limiting - Track requests per IP
+
+    Dark/Light mode - CSS toggle + cookie storage
+
+    Emoji picker - Client-side library integration
+
+Tier 2: Moderate (Half-day)
+
+    File uploads (images) - Multipart form handling
+
+    User profiles - New DB table + simple profile page
+
+    Markdown support - Client-side renderer (e.g., pulldown-cmark)
+
+    Typing indicators - POST endpoint + frontend polling
+
+    Private rooms - Add is_private flag to chat DB
+
+Tier 3: Complex (1-2 days)
+
+    WebSocket migration - Replace HTTP polling (tokio-tungstenite)
+
+    Password reset flow - Email/SMTP integration
+
+    Reactions system - New DB table for message reactions
+
+    Admin dashboard - User/chat management UI
+
+    Read receipts - Track message views per user
+
+Tier 4: Advanced (3+ days)
+
+    End-to-end encryption - Cryptographic message handling
+
+    Voice/video chat - WebRTC integration
+
+    Cluster deployment - Horizontal scaling with Redis
+
+    Full audit logging - Track all moderation actions
+
+Recommended Progression Path
+
+    Start with Tier 1 to quickly improve usability:
+
+        Add logout button (clear cookies)
+
+        Implement message deletion (soft-delete in DB)
+
+    Then tackle Tier 2 for richer features:
+
+        File uploads will force you to handle binary data
+
+        Private rooms introduce access control logic
+
+    WebSockets (Tier 3) should be your first major overhaul:
+    rust
+    Copy
+
+    // Example WebSocket upgrade in your current HTTP server
+    use tokio_tungstenite::accept_async;
+
+    async fn handle_websocket(stream: TcpStream) {
+        let ws_stream = accept_async(stream).await.unwrap();
+        // ... real-time message handling
+    }
+
+    Save Tiers 3-4 for when you need scalability/advanced features.
+
+Critical Missing Piece
+
+Your current polling-based chat (fetchMessage every second) is the biggest technical debt. WebSockets should be prioritized after basic features are stable.
+
+Would you like a detailed implementation guide for any specific item? For example, I can show you exactly how to:
+
+    Add file uploads with MIME type validation
+
+    Implement WebSocket message broadcasting
+
+    Set up a proper session store (instead of cookie-based auth)
+
+
+
+
+
+
+
+
+
+
+
+
+
+    Your Rust chat server is coming along nicely! Here are some key features and improvements you could consider adding next:
+1. Security Enhancements
+
+    HTTPS Support: Add TLS/SSL encryption for secure communication
+
+    CSRF Protection: Add tokens to prevent cross-site request forgery
+
+    Input Sanitization: Properly sanitize all user inputs to prevent XSS attacks
+
+    Password Security: Add password complexity requirements and consider using Argon2 instead of bcrypt
+
+2. User Features
+
+    User Authentication:
+
+        Logout functionality
+
+        Session expiration
+
+        Remember me functionality
+
+    User Profiles:
+
+        Profile pages
+
+        Avatar uploads
+
+        Status messages
+
+    Private Messaging: Direct user-to-user chats
+
+    User Roles: Admin/moderator capabilities
+
+3. Chat Features
+
+    Message Editing/Deletion: Allow users to edit/delete their own messages
+
+    Message History: Load older messages when scrolling up
+
+    Typing Indicators: Show when users are typing
+
+    Read Receipts: Show when messages have been read
+
+    Reactions: Emoji reactions to messages
+
+    File Uploads: Allow sharing images/files
+
+    Markdown Support: Basic formatting in messages
+
+4. Performance Improvements
+
+    Database Connection Pooling: For better database performance
+
+    Message Caching: Cache recent messages to reduce DB load
+
+    WebSockets: Replace polling with real-time WebSocket connections
+
+    Rate Limiting: Prevent abuse/spam
+
+5. UI/UX Improvements
+
+    Responsive Design: Make it work well on mobile devices
+
+    Dark/Light Mode: User-selectable themes
+
+    Notifications: Browser notifications for new messages
+
+    Emoji Picker: Easy emoji insertion
+
+    Better Message Formatting: Code blocks, quotes, etc.
+
+6. Administration Features
+
+    Admin Dashboard: View/manage users and chats
+
+    Moderation Tools: Ban users, delete inappropriate messages
+
+    Chat Room Management: Private/invite-only rooms, room permissions
+
+7. Testing & Reliability
+
+    Unit/Integration Tests: Especially for critical paths
+
+    Error Handling: More comprehensive error handling and logging
+
+    Load Testing: Ensure it can handle many concurrent users
+
+8. Deployment Improvements
+
+    Docker Support: For easier deployment
+
+    Configuration Files: For server settings
+
+    Metrics/Health Checks: Monitoring endpoints
+
+Suggested First Steps:
+
+    WebSocket Support - This would eliminate the need for polling and make the chat truly real-time
+
+    Message Persistence - Currently messages are stored but you might want to add message history loading
+
+    Basic Moderation - At least message deletion capabilities
+
+    File Uploads - Start with image uploads that display in the chat
+
+Would you like me to elaborate on how to implement any of these specific features?
