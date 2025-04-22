@@ -38,6 +38,8 @@ use bcrypt::{hash, verify};
     >try to make it so that it checks at every request if the user is authenticated
     implement image and video, then learn how to view it
 
+    now the send message and send_file_message dont wor anymore in the javascript part of the website
+
 --------------------------------------------------------------------------------
 */
 
@@ -91,8 +93,6 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
     }   else {
         false
     };
-
-    println!("\n\nrequest is = {}", String::from_utf8_lossy(&buffer[..]));
 
     if connected == false {
 
@@ -152,6 +152,9 @@ fn post(mut stream: TcpStream, buffer: Vec<u8>){
     println!("POST resposne identified");
     let status_code = "HTTP/1.1 200 OK\r\n\r\n";
 
+    println!("\n\nPOST request is = {}", String::from_utf8_lossy(&buffer[..]));
+
+
     // let conn = Connection::open("chats/chat.db").unwrap();
 
     println!("\n\nrequest is = {}", String::from_utf8_lossy(&buffer[..]));
@@ -176,9 +179,14 @@ fn post(mut stream: TcpStream, buffer: Vec<u8>){
         // could make it so that it just deletes the message instead of reloading the while page?
         //maybe another day 19.04.2025
         
-        } else if let Some(_) = memmem::find(&buffer[..], b"Logout") {
+    } else if let Some(_) = memmem::find(&buffer[..], b"Logout") {
         logout(stream);
+    } else if let Some(_) = memmem::find(&buffer[..], b"boundary=") {
+        // file_upload(stream, buffer);
+        let response = format!("{}{}", status_code, error("Trying to upload a file"));
+        respond(stream, response.to_string());
     }
+    // here put the upload file function
     else {
         let response = format!("{}{}", status_code, error("Was not able to identify request"));
         respond(stream, response.to_string());
@@ -551,6 +559,14 @@ fn chat(chat: String, user: &str) -> String {
         #chat-window > li:last-child {
             padding: 0 0 100px 0;
         }
+        #file_upload {
+            position: absolute;
+            right: 480px;
+            bottom: 57px;
+            height: 2vh;
+            border: 2px groove #11ecb9;
+            background: linear-gradient(270deg, #02d02a,rgb(247, 204, 65))
+        }
         #LogOut {
 
         }
@@ -568,6 +584,11 @@ fn chat(chat: String, user: &str) -> String {
             <input type=\"text\" placeholder=\"Enter a message to send in chat\" name=\"input_message\" id=\"inputMessage\">
             <button type=\"submit\"> Send message </button> 
         </form>
+
+        <form id=\"file_upload\" method=\"POST\" enctype=\"multipart/form-data\">
+            <input type=\"file\" name=\"file\" id=\"file_uploaded\" accept=\"image/*, video/* \">
+            <button type=\"submit\">Upload to chat</button>
+        </form>
     ");
     println!("chat = chats/{}.db", chat);
     let conn = Connection::open(format!("chats/{}.db", chat)).unwrap();
@@ -581,11 +602,12 @@ fn chat(chat: String, user: &str) -> String {
     let messages = get_messages(&conn).unwrap();
     
     html.push_str(&format!("
+    </body>
     <script>
     const chatWindow = document.getElementById('chat-window');
-    const currentUser = '{}'; // Pass the logged-in username to JS
+    const currentUser = '{}';
     
-    document.getElementById(\"chatForm\").addEventListener(\"submit\", function(event) {{
+     document.getElementById(\"chatForm\").addEventListener(\"submit\", function(event) {{
         event.preventDefault();
         const input = document.getElementById(\"inputMessage\");
         const inputMessage = input.value;
@@ -621,13 +643,47 @@ fn chat(chat: String, user: &str) -> String {
         }})
 
         setTimeout(fetchMessage, 10);
+    }}
+
+    document.getElementById(\"file_upload\").addEventListener(\"submit\", function(event) {{
+        event.preventDefault();
+        const input = document.getElementById(\"file_uploaded\");
+        if input.files.length > 0 {{
+            send_file_message(input.files[0]);
         }}
+    }});
+
+    async function send_file_message(message) {{
+        console.log(message);
+
+        const data = new FormData();
+        data.append('file', message);
+
+        fetch('/enter_message', {{
+                    method:'POST',
+                    body: data
+        }}).then(response => {{
+        console.log('response= ', response);
+        if(!response.ok) {{
+            throw new Error('Network response was not ok');
+        }}
+        return response.json();
+        }})
+        .then(data => {{
+            console.log('Server response: ', data);
+        }})
+        .catch(error => {{
+            console.error('Error:' , error);
+        }})
+
+        setTimeout(fetchMessage, 10);
+    }};
 
     function scrollToBottom() {{
         chatWindow.scrollTop = chatWindow.scrollHeight;
-    }}
+    }};
 
-    async function fetchMessage(){{
+    async function fetchMessage() {{
         const response = await fetch('/messages');
         const messages = await response.json();
         chatWindow.innerHTML = messages.map(msg => msg.is_deleted ?
@@ -638,7 +694,8 @@ fn chat(chat: String, user: &str) -> String {
             </p>
             <h4> Message has been deleted</h4>
         </li>
-        ` : 
+        ` 
+        : 
         `
         <li>
             <p style=\"color: ${{msg.color}};\"> 
@@ -654,12 +711,12 @@ fn chat(chat: String, user: &str) -> String {
         </li>
         `).join('');
         scrollToBottom();
-    }}
+    }};
 
     setInterval(fetchMessage, 1000);
     fetchMessage();
     </script>
-    </body>
+    
     </html>
 ", user));
 

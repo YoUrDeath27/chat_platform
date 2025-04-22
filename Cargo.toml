@@ -15,7 +15,7 @@ walkdir = "2.5"  # For recursive directory traversal
 
 encoding = "0.2"
 
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1.44.2", features = ["full"] }
 rusqlite = { version = "0.34", features = ["bundled"] }
 
 serde_json = "1.0.140"
