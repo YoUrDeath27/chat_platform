@@ -1,6 +1,6 @@
 use htmlescape::decode_html;
 use memchr::memmem;
-use percent_encoding::percent_decode_str;
+use percent_encoding::{percent_decode_str, percent_encode, NON_ALPHANUMERIC};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -25,8 +25,6 @@ use std::{
     thread
 };
 
-// use std::time::Duration;
-// use std::path::Path;
 
 use bcrypt::{hash, verify};
 
@@ -36,9 +34,18 @@ use bcrypt::{hash, verify};
     every time smth fails will go to error()  <- implement error handling
 
     >try to make it so that it checks at every request if the user is authenticated
-    implement image and video, then learn how to view it
+    implement image and video, then learn how to view and preview it
 
-    now the send message and send_file_message dont wor anymore in the javascript part of the website
+    when the user upploads a image or video, it stores in a directory
+    it then appends to the chat it was created and to the user,
+    (addd a *file* collon in chat's table so u can show where the file is located)
+    afterwards it should imediately show in the chat also when the /messages request comes
+    (idk how im gonna do that tbh)
+
+
+    in the future solve the problem of ' and these fuckers if special characters
+
+    
 
 --------------------------------------------------------------------------------
 */
@@ -53,9 +60,10 @@ pub fn handle_connection(mut stream: TcpStream){
     setup_users(); //just making sure that these are here in any case 
     //for the first bootup yk
 
+    
     let mut buffer = vec![0u8; 2048];  //pre defined
     let mut received_data = Vec::new(); //growable
-
+    
     
 
     loop {
@@ -69,14 +77,16 @@ pub fn handle_connection(mut stream: TcpStream){
         if bytes_read == 0 {
             break;
         }
-
+        
         received_data.extend_from_slice(&buffer[..bytes_read]);
+        
+        // println!("\n\n\n request is = {}", String::from_utf8_lossy(&received_data[..]));
 
         if received_data[..3] == *b"GET" && bytes_read < buffer.len() {
             get(stream, received_data);
             break;
         }
-
+        
         if received_data[..4] == *b"POST" && bytes_read < buffer.len() {
             post(stream, received_data);
             break;
@@ -85,9 +95,10 @@ pub fn handle_connection(mut stream: TcpStream){
 }
 
 fn get(mut stream: TcpStream, buffer: Vec<u8>){
-    println!("Get resposne identified");
+    // println!("Get resposne identified");
+    
     let status_code = "HTTP/1.1 200 OK\r\n";
-
+    
     let connected = if let Some(_) = memmem::find(&buffer[..], b"Cookie: Auth").map(|p| p as usize) {
         true
     }   else {
@@ -116,7 +127,8 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
 
         let conn = Connection::open(format!("{}", c)).unwrap();
         let messages = json_messages(&conn);
-        println!("MESSAGES ARE= \n\n{:#?}\n\n\n\n", messages);
+        // println!("MESSAGES ARE= \n\n{:#?}\n\n\n\n", messages);
+
         let status = "HTTP/1.1 200 OK\r\n\r\n";
         let response = format!("{}{}", status, messages.unwrap());
         respond(stream, response);
@@ -130,9 +142,10 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
         //ENTER A CHAT WITH THIS
         println!("\n\n\n\nchat whatever \n\n\n");
 
-        println!("buffer = {}", String::from_utf8_lossy(&buffer[..]));
+        // println!("buffer = {}", String::from_utf8_lossy(&buffer[..]));
 
         let c = get_from_buffer(buffer.clone(), "chats_from_url");
+        println!("chat i am supposed to enter = {}", c);
 
         let response = format!("{}{}", 
                                     status_code,
@@ -151,13 +164,7 @@ fn get(mut stream: TcpStream, buffer: Vec<u8>){
 fn post(mut stream: TcpStream, buffer: Vec<u8>){
     println!("POST resposne identified");
     let status_code = "HTTP/1.1 200 OK\r\n\r\n";
-
-    println!("\n\nPOST request is = {}", String::from_utf8_lossy(&buffer[..]));
-
-
     // let conn = Connection::open("chats/chat.db").unwrap();
-
-    println!("\n\nrequest is = {}", String::from_utf8_lossy(&buffer[..]));
 
     if let Some(new_cha) = memmem::find(&buffer[..], b"new_chat=").map(|p| p as usize) {
         new_chat(stream, buffer, new_cha);
@@ -170,8 +177,8 @@ fn post(mut stream: TcpStream, buffer: Vec<u8>){
         println!("POST resposne not identified?");
         enter_message(stream, buffer);
         
-    } else if let Some(_) = memmem::find(&buffer[..], b"remove_chat"){
-        remove_chat(stream, buffer);
+    } else if let Some(_) = memmem::find(&buffer[..], b"exit_chat="){
+        exit_chat(stream, buffer);
     } else if let Some(_) = memmem::find(&buffer[..], b"delete_chat"){
         delete_chat(stream, buffer);
     } else if let Some(_) = memmem::find(&buffer[..], b"remove_message") {
@@ -184,7 +191,8 @@ fn post(mut stream: TcpStream, buffer: Vec<u8>){
     } else if let Some(_) = memmem::find(&buffer[..], b"boundary=") {
         // file_upload(stream, buffer);
         let response = format!("{}{}", status_code, error("Trying to upload a file"));
-        respond(stream, response.to_string());
+        upload_file(stream, buffer);
+        // respond(stream, response.to_string());
     }
     // here put the upload file function
     else {
@@ -199,7 +207,9 @@ fn post(mut stream: TcpStream, buffer: Vec<u8>){
 
 fn new_chat(mut stream: TcpStream, buffer: Vec<u8>, new_chat: usize) {
     let status_code = "HTTP/1.1 200 OK\r\n\r\n";
-    let new_chat = String::from_utf8_lossy(&buffer[new_chat + "new_chat=".len() ..] );
+    let new_chat = percent_decode_str(&*String::from_utf8_lossy(&buffer[new_chat + "new_chat=".len() ..] ))
+                        .decode_utf8_lossy()
+                        .replace("+", " ");
         //get users and see if they already have a chat created
 
     let conn = Connection::open("users/users.db").unwrap();
@@ -220,7 +230,7 @@ fn new_chat(mut stream: TcpStream, buffer: Vec<u8>, new_chat: usize) {
             println!("user {} does not have a chat", user[0].name);
 
             let conn = Connection::open("users/users.db").unwrap();
-            user_created_chat(&conn, &user[0].name, &new_chat.replace("+", " ")).unwrap();
+            user_created_chat(&conn, &user[0].name, &new_chat).unwrap();
 
             println!("new chat = {:?}", new_chat);
 
@@ -238,7 +248,7 @@ fn new_chat(mut stream: TcpStream, buffer: Vec<u8>, new_chat: usize) {
     }        
 }
 
-fn remove_chat(mut stream: TcpStream, buffer: Vec<u8>) {
+fn exit_chat(mut stream: TcpStream, buffer: Vec<u8>) {
     let response = "Set-Cookie: Chat_room=; Expires= Thu, 01 Jan 1970 00:00:00 GMT; Path=/; HttpOnly; SameSite=Strict";
 
     let user = get_user(
@@ -258,7 +268,10 @@ fn delete_chat(mut stream: TcpStream, buffer: Vec<u8>) {
                     get_from_buffer(buffer.clone(), "username")
                 ).unwrap();
 
-    let filename = get_from_buffer(buffer.clone(), "delete_chat");
+    let filename = percent_decode_str(&*get_from_buffer(buffer.clone(), "delete_chat"))
+                    .decode_utf8_lossy()
+                    .replace("+", " ");
+    println!("filename= {}", filename);
     fs::remove_file(&*format!("chats/{}.db", filename));
 
     user_deleted_chat(
@@ -281,9 +294,9 @@ fn enter_message(mut stream: TcpStream, buffer: Vec<u8>) {
     //insert_message(conn: &Connection, name: &str, color: &str, message: &str)
 
     let connection = get_from_buffer(buffer.clone(), "chat_room");
-    let conn = Connection::open(connection).unwrap();
+    let mut conn = Connection::open(connection).unwrap();
 
-    insert_message(&conn, user.as_str(), color.as_str(), input.as_str());
+    insert_message(&mut conn, user.as_str(), color.as_str(), input.as_str(),vec![("", "", "", 0)]);
     println!("\n\n\n\n\nHere i should add the new message");
     
     let response = "HTTP/1.1 200 OK\r\n\r\n";
@@ -573,8 +586,11 @@ fn chat(chat: String, user: &str) -> String {
     </style>
     <body>
         <h2>Welcome to the chat fam, enjoy :)</h2>
+
+        <!-- <img src=\"Picture1.png\" alt=\"testing\" width=\"200\" height=\"200\"> -->
+
         <form action=\"/\" method=\"POST\">
-            <input type=\"hidden\" name=\"remove_chat\">
+            <input type=\"hidden\" name=\"exit_chat\">
             <button type=\"submit\"> Go back to browse the chat rooms </button> 
         </form>
 
@@ -586,8 +602,8 @@ fn chat(chat: String, user: &str) -> String {
         </form>
 
         <form id=\"file_upload\" method=\"POST\" enctype=\"multipart/form-data\">
-            <input type=\"file\" name=\"file\" id=\"file_uploaded\" accept=\"image/*, video/* \">
-            <button type=\"submit\">Upload to chat</button>
+            <input type=\"file\" name=\"file\" id=\"file\" />
+            <button type=\"submit\"> Upload file </button>
         </form>
     ");
     println!("chat = chats/{}.db", chat);
@@ -602,82 +618,88 @@ fn chat(chat: String, user: &str) -> String {
     let messages = get_messages(&conn).unwrap();
     
     html.push_str(&format!("
-    </body>
     <script>
     const chatWindow = document.getElementById('chat-window');
-    const currentUser = '{}';
+    const currentUser = '{}'; 
     
-     document.getElementById(\"chatForm\").addEventListener(\"submit\", function(event) {{
+    document.getElementById(\"chatForm\").addEventListener(\"submit\", function(event) {{
         event.preventDefault();
         const input = document.getElementById(\"inputMessage\");
         const inputMessage = input.value;
         input.value = \"\";
         send_message(inputMessage);
-    }});
-
+        }});
+        
     async function send_message(message) {{
         console.log(message);
 
         const data = {{
             input_message: message
         }};
-
+        
         fetch('/enter_message', {{
                     method:'POST',
                     headers: {{
                         'Content-Type': 'application/json'
-                    }},
+                        }},
                     body: JSON.stringify(data)
             }}).then(response => {{
-            console.log('response= ', response);
+                console.log('response= ', response);
             if(!response.ok) {{
                 throw new Error('Network response was not ok');
             }}
-            return response.json();
+            return response;
             }})
         .then(data => {{
             console.log('Server response: ', data);
+            fetchMessage();
         }})
         .catch(error => {{
             console.error('Error:' , error);
         }})
-
-        setTimeout(fetchMessage, 10);
     }}
 
     document.getElementById(\"file_upload\").addEventListener(\"submit\", function(event) {{
         event.preventDefault();
-        const input = document.getElementById(\"file_uploaded\");
-        if input.files.length > 0 {{
-            send_file_message(input.files[0]);
-        }}
-    }});
 
-    async function send_file_message(message) {{
-        console.log(message);
+        const button = document.querySelector(\"#file_upload > button[type=submit]\");
+        button.disabled = true;
+
+        const file = document.getElementById(\"file\");
+        if (file.files.length > 0) {{
+            send_file_message(file.files[0]).finally(() => {{
+                button.disabled = false;
+            }})
+        }} else {{
+            console.log(\"No file selected\");
+        }}
+        file.value = \"\"; 
+    }});
+        
+    async function send_file_message(file) {{
+        console.log(file);
 
         const data = new FormData();
-        data.append('file', message);
-
-        fetch('/enter_message', {{
+        data.append('file', file);
+        
+        fetch('/enter_file_message', {{
                     method:'POST',
                     body: data
-        }}).then(response => {{
-        console.log('response= ', response);
-        if(!response.ok) {{
-            throw new Error('Network response was not ok');
-        }}
-        return response.json();
-        }})
+            }}).then(response => {{
+                console.log('response= ', response);
+            if(!response.ok) {{
+                throw new Error('Network response was not ok');
+            }}
+            return response;
+            }})
         .then(data => {{
             console.log('Server response: ', data);
+            fetchMessage();
         }})
         .catch(error => {{
             console.error('Error:' , error);
         }})
-
-        setTimeout(fetchMessage, 10);
-    }};
+    }}
 
     function scrollToBottom() {{
         chatWindow.scrollTop = chatWindow.scrollHeight;
@@ -701,10 +723,27 @@ fn chat(chat: String, user: &str) -> String {
             <p style=\"color: ${{msg.color}};\"> 
                 ${{msg.name}}
             </p>
-            <h4> ${{msg.message}} </h4>
+            `
+            +
+            if (msg.message == \"\") {
+                `
+                    <video width=\"320\" height=\"240\" controls>
+                        <source src=\"/uploads/${{msg.attachments[0].file_path}}\" type=\"video/mp4\" alt=\"${msg.attachments[0].file_name}\">
+                        Your browser does not support the video tag.
+                    </video>
+                    `
+                :
+                    `
+                    <img src=\"/uploads/${{msg.attachments[0].file_path}}\" alt=\"${{msg.attachments[0].file_name}}\" width=\"320\" height=\"240\">
+                    `
+            } else {
+                `<h4> ${{msg.message}} </h4>`
+            }
+            +
+            `
             ${{msg.name === currentUser ? 
-                `<form action=\"/\" method=\"POST\">
-                    <input type=\"hidden\" name=\"remove_message\" value=\"${{msg.id}}\">
+            `<form action=\"/\" method=\"POST\">
+            <input type=\"hidden\" name=\"remove_message\" value=\"${{msg.id}}\">
                     <button type=\"submit\"> Delete message </button>
                 </form>` 
                 : ''}}
@@ -712,11 +751,12 @@ fn chat(chat: String, user: &str) -> String {
         `).join('');
         scrollToBottom();
     }};
-
+    
     setInterval(fetchMessage, 1000);
+
     fetchMessage();
     </script>
-    
+    </body>
     </html>
 ", user));
 
@@ -766,13 +806,13 @@ fn list(user: Vec<User>) -> String {
 
         println!("chat = {:?}", chat);
         println!("user = {:?}", user);
-        
+        println!("chat encoded = {:?}", percent_encode(&chat.to_string().into_bytes()[..], NON_ALPHANUMERIC).to_string());        
         if user[0].chat == chat {
             html.push_str(&*format!("
             <li>
                 <h3> You are the owner of this chat </h3>
                 {}
-                <button  onclick=\"window.location.href='/{}'\">Enter chat </button>
+                <button  onclick=\'window.location.href=\"/{}\"\'>Enter chat </button>
                 <form action=\"/\" method=\"POST\">
                     <input type=\"hidden\" name=\"delete_chat\" value=\"{}\">
                     <button type=\"submit\"> Delete chat </button>
@@ -787,7 +827,7 @@ fn list(user: Vec<User>) -> String {
             <li>
                 <h3> This is a public chat room </h3>
                 {}
-                <button  onclick=\"window.location.href='/{}'\">Enter chat </button>
+                <button  onclick=\'window.location.href=\"/{}\"\'>Enter chat </button>
             </li>
             ", chat
             , chat));
@@ -926,7 +966,151 @@ impl Drop for ThreadPool {
 }
  */
 
- /*
+/*
+    *******************************************************************************************
+    This is the part where all file uploading processes will take place
+    this includes saving them, deleting them
+    *******************************************************************************************
+*/
+
+fn decode_Windows_1255(bytes: &[u8]) -> String{
+    // Try UTF-8 first
+    if let Ok(utf8_str) = String::from_utf8(bytes.to_vec()) {
+        return utf8_str;
+    }
+    
+    // Fall back to Windows-1252
+    WINDOWS_1252.decode(bytes, DecoderTrap::Replace).unwrap_or_else(|_| String::from("Invalid encoding"))
+}
+
+// REFACTOR THIS PART WHEN U COME BACK 
+// why tf its corrupted 
+fn upload_file(mut stream: TcpStream, buffer: Vec<u8>) {
+    // println!("buffer in upload ={}", String::from_utf8_lossy(&buffer[..]));
+
+    let boundary = match get_boundary(&buffer) {
+        Some(b) => b,
+        None => {
+            let response = "HTTP/1.1 200 OK\r\n\r\n";
+            let response = format!("{}{}", response, error("Failed to get the boundary"));
+            respond(stream, response.to_string());
+            return;
+        }
+    };
+
+    let buffer = &buffer[..];
+
+    let content_boundary = memmem::find(buffer, &boundary[..]).map(|p| p as usize).unwrap();
+    let info = &buffer[content_boundary + boundary.len()..];
+
+    let contents = memmem::find(info, b"\r\n\r\n").map(|p| p as usize).unwrap();
+    // let contents = &info[contents + "\r\n\r\n".len() + boundary.len() .. info.len() - (boundary.len() + 6)];
+    let info_bound = memmem::find(info, &boundary[..]).map(|p| p as usize).unwrap();
+
+    let contents = &info[ contents + 4.. info_bound];
+    
+    // println!("contents = {}", String::from_utf8_lossy(&contents[..]));
+    //contents done
+
+    let c_type = memmem::find(info, b"Content-Type:").map(|p| p as usize).unwrap();
+    let end = memmem::find(info, b"\r\n\r\n").map(|p| p as usize).unwrap();
+    let content_type = &info[c_type + "Content-Type: ".len() .. end];
+
+    // println!("content_type = {}", String::from_utf8_lossy(&content_type[..]));
+
+    let filename = memmem::find(info, b"filename=\"").map(|p| p as usize).unwrap();
+    let filename = &info[filename + "filename=\"".len() ..];
+    let end = memmem::find(filename, b"\"").map(|p| p as usize).unwrap();
+    let filename = &filename[..end];
+
+    // println!("filename = {}", String::from_utf8_lossy(&filename[..]));
+
+    // now save it in the specified folder
+    let content_t = String::from_utf8_lossy(&content_type[..]);
+    let filename = String::from_utf8_lossy(&filename[..]);
+
+    add_file(buffer.to_vec(), contents, &content_t.to_string(), filename.to_string());
+
+
+    let connection = get_from_buffer(buffer.clone().to_vec(), "chat_room");
+    let mut conn = Connection::open(connection.clone()).unwrap();
+    let user = get_from_buffer(buffer.clone().to_vec(), "username");
+    let color = get_from_buffer(buffer.clone().to_vec(), "color");
+
+    println!("connection = {:?}", connection);
+    println!("idfk where it should add = {}", format!("uploads/{}/{}", get_from_buffer(buffer.clone().to_vec(), "chats"), filename));
+
+    insert_message(
+        &mut conn, 
+        user.as_str(), 
+        color.as_str(), 
+        "", 
+        vec![(
+            &*filename.to_string(), 
+            &format!("uploads/{}/{}", get_from_buffer(buffer.clone().to_vec(), "chats"), filename), 
+            &content_t.to_string(), 
+            contents.len() as u64
+        )]
+    ).unwrap();
+
+
+
+
+    println!("\n\nDone with the POST add_file request my guy");
+    respond(stream, "HTTP/1.1 200 OK\r\n\r\n".to_string());
+
+}
+
+
+fn get_boundary(buffer: &Vec<u8>) -> Option<Vec<u8>> {
+    let buffer = &buffer[..];
+    let boundary_b = memmem::find(buffer, b"boundary=")
+        .map(|pos| pos as usize)
+        .unwrap();
+    let boundary_b = &buffer[boundary_b + "boundary=".len()..];
+    let boundary_right = memmem::find(boundary_b, b"\r\n")
+        .map(|pos| pos as usize)
+        .unwrap();
+    let boundary = &boundary_b[..boundary_right];
+    let boundary = format!("--{}", String::from_utf8_lossy(&boundary[..])).into_bytes();
+    // println!("got the boundary as: {}", String::from_utf8_lossy(&buffer[..]));
+    Some(boundary)
+}
+
+fn add_file(
+    buffer: Vec<u8>,
+    content: &[u8],
+    content_type: &str,
+    filename: String,
+) {
+
+    
+    let chat = get_from_buffer(buffer, "chats");
+    fs::create_dir_all(&format!("uploads/{}", chat));
+    
+    let filename_upload = format!("uploads/{}/{}", chat, filename);
+    
+    
+    println!("contents = {:?}", String::from_utf8_lossy(&content[..]));
+    println!("upload filename ={}", filename_upload);
+
+    let mut file = fs::File::create(&filename_upload).unwrap();
+    file.write_all(content);
+
+    // let filename_data = format!("data/{}.txt", filename);
+    // // println!("filename_data = {}", filename_data);
+    // println!("filename_data = {}", filename_data);
+    // let mut file2 = fs::File::create(&filename_data).unwrap();
+
+    // dont forget to add the content-type in the database
+
+    // file2.write_all(&format!("Content-Type:{}", content_type).into_bytes()[..]); //idk how this works
+                                                                                //till here we saved the file on the server (hopefully)
+    // let response = "HTTP/1.1 200 OK\r\n";
+}
+
+
+/*
     ---------------------------------------------------------------------------------------
     you will now enter the database part
     where everything related to the database will take place here
@@ -940,8 +1124,18 @@ struct ChatMessage {
     color: String,
     message: String,
     is_deleted: i8,
+    attachments: Vec<Attachment>,
 }
 
+#[derive(Debug, Serialize)]
+struct Attachment {
+    id: usize,
+    message_id: usize,
+    file_name: String,
+    file_path: String,
+    file_type: String,
+    file_size: u64,
+}
 #[derive(Debug, Serialize)]
 struct User {
     id: usize,
@@ -950,28 +1144,82 @@ struct User {
     chat: String, // this is the chat that the user created
 }
 
-fn insert_message(conn: &Connection, name: &str, color: &str, message: &str) -> Result<()> {
-    conn.execute(
+fn insert_message(
+    conn: &mut Connection, 
+    name: &str, 
+    color: &str, 
+    message: &str,
+    attachments: Vec<(&str, &str, &str, u64)> // (file_name, file_path, file_type, file_size)
+) -> Result<()> {
+
+    let tx = conn.transaction()?;
+
+    tx.execute(
         "INSERT INTO messages (name, color, message) VALUES ( ?1, ?2, ?3 )",
         params![name, color, message],
     )?;
+
+    let message_id = tx.last_insert_rowid();
+
+    for (file_name, file_path, file_type, file_size) in attachments{
+        tx.execute(
+            "INSERT INTO attachments (message_id, file_name, file_path, file_type, file_size) VALUES ( ?1, ?2, ?3, ?4, ?5 )",
+            params![message_id, file_name, file_path, file_type, file_size],
+        )?;
+    }
+
+    tx.commit()?;
 
     Ok(())
 }
 
 fn get_messages(conn: &Connection) -> Result<Vec<ChatMessage>> {
-    let mut stmt = conn.prepare("SELECT id, name, color, message, is_deleted FROM messages")?;
-    let messages = stmt.query_map([], |row| {
-        Ok(ChatMessage{
-            id: row.get(0)?,
-            name: row.get(1)?,
-            color: row.get(2)?,
-            message: row.get(3)?,
-            is_deleted: row.get(4)?,
-        })
-    })?
-    .collect::<Result<Vec<_>>>()?;
 
+    let mut messages = Vec::new();
+
+    let mut stmt = conn.prepare(
+        "SELECT id, name, color, message, is_deleted FROM messages"
+    )?;
+    
+    let message_rows = stmt.query_map([], |row| {
+        Ok((
+            row.get(0)?,
+            row.get(1)?,
+            row.get(2)?,
+            row.get(3)?,
+            row.get(4)?,
+        ))
+    })?;
+
+    for row in message_rows {
+        let (id, name, color, message, is_deleted): (usize, String, String, String, i8) = row?;
+    
+        let mut attachments_stmt = conn.prepare(
+            "SELECT id, file_name, file_path, file_type, file_size FROM attachments WHERE message_id = ?1"
+        )?;
+
+        let attachments = attachments_stmt.query_map(params![id], |row| {
+            Ok(Attachment{
+                id: row.get(0)?,
+                message_id: id,
+                file_name: row.get(1)?,
+                file_path: row.get(2)?,
+                file_type: row.get(3)?,
+                file_size: row.get(4)?,
+            })
+        })?.collect::<Result<Vec<_>>>()?;
+        
+        messages.push(ChatMessage{
+            id,
+            name: name.to_string(),
+            color: color.to_string(),
+            message: message.to_string(),
+            is_deleted,
+            attachments,
+        });
+    }
+
+    println!("messages = {:#?}", messages);
     Ok(messages)
 }
 
@@ -1006,13 +1254,26 @@ fn setup_chat(name: String) -> Result<()> {
         [],
     )?;
 
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS attachments (
+            id INTEGER PRIMARY KEY,
+            message_id INTEGER NOT NULL,
+            file_name TEXT NOT NULL,
+            file_path TEXT NOT NULL,
+            file_type TEXT NOT NULL,
+            file_size INTEGER NOT NULL,
+            FOREIGN KEY(message_id) REFERENCES messages(id) ON DELETE SET NULL
+        )",
+        [], 
+    )?;
+
     Ok(())
 }
 
 fn setup_users() -> Result<()> {
     // Open or create the database file
     let conn = Connection::open("users/users.db")?;
-    println!("connection= {:?}", conn);
+    // println!("connection= {:?}", conn);
 
     // Create a table for chat messages
     conn.execute(
@@ -1052,6 +1313,7 @@ fn user_deleted_chat(conn: &Connection, name: &str) -> Result<()> {
     )?;
     Ok(())
 }
+
 
 
 fn get_users(conn: &Connection) -> Result<Vec<User>> {
